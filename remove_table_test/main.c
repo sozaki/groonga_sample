@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <include/groonga.h>
+#include <groonga.h>
 #include <time.h>
 
 static grn_ctx insert_ctx;
@@ -17,20 +17,24 @@ static 	grn_obj* insert_db;
 int remove_grn_table(grn_ctx* ctx, char *name, int length)
 {
 	grn_rc result;
-	grn_obj* obj = grn_ctx_get(ctx, name, strlen(name));
-	char column[40];
+	grn_obj* obj = grn_ctx_get(ctx, name, length);
+	char index_table[30];
+	memset(index_table, 0, 30);
 	if (obj == NULL) {
 			printf("%s has already been removed.\n", name);
 			return 1;
 	}
 
-	if(length == 11){
-		sprintf(column, "%s.value", name);
-		result = grn_obj_remove(ctx, grn_ctx_get(ctx, column, strlen(column)));
-		sprintf(column, "%s.num", name);
-		result = grn_obj_remove(ctx, grn_ctx_get(ctx, column, strlen(column)));
-		result = grn_obj_remove(ctx, obj);
+	printf("length: %d: <%.*s>\n", length, length, name);
+	sprintf(index_table, "%.*s_index", length, name);
 
+	if(length == 13){
+		result = grn_obj_remove(ctx, obj);
+		grn_obj* obj_index = grn_ctx_get(ctx, index_table, strlen(index_table));
+		if(obj_index != NULL)
+		{
+			result  = grn_obj_remove(ctx, obj_index);
+		}
 		if (result != GRN_SUCCESS) {
 				printf("Failed to remove %s obj. : %d\n", name, result);
 		} else {
@@ -117,7 +121,6 @@ void create_and_remove_table()
 	int i = 0;
 	int j = 0;
 	char record[100];
-	grn_obj tables;
 	grn_obj* obj;
 	char table_name[30];
 
@@ -137,6 +140,8 @@ void create_and_remove_table()
 		grn_db_touch(&insert_ctx, insert_db);
 		usleep(1000);
 
+		grn_obj tables;
+		GRN_PTR_INIT(&tables, GRN_OBJ_VECTOR, GRN_ID_NIL);
 		grn_rc result = grn_ctx_get_all_tables(&insert_ctx, &tables);
 		if(result == GRN_SUCCESS){
 			j = GRN_BULK_VSIZE(&tables) / sizeof(grn_obj *);
@@ -145,10 +150,20 @@ void create_and_remove_table()
 		for(i = 0; i < j; i++)
 		{
 			int length = grn_obj_name(&insert_ctx, GRN_PTR_VALUE_AT(&tables, i), table_name, 30);
-			obj = grn_ctx_get(&insert_ctx, table_name, strlen(table_name));
+			obj = grn_ctx_get(&insert_ctx, table_name, length);
 			if(j > 10 && i == 0)
 			{
 				remove_grn_table(&insert_ctx, table_name, length);
+				grn_obj update_tables;
+				GRN_PTR_INIT(&update_tables, GRN_OBJ_VECTOR, GRN_ID_NIL);
+				grn_rc result = grn_ctx_get_all_tables(&insert_ctx, &update_tables);
+				if(result == GRN_SUCCESS){
+					j = GRN_BULK_VSIZE(&update_tables) / sizeof(grn_obj *);
+					printf("%d tables exists\n", j);
+				}
+
+				GRN_OBJ_FIN(&insert_ctx, &update_tables);
+
 			}
 			else{
 				grn_obj_close(&insert_ctx, obj);
