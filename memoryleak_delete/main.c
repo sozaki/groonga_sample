@@ -87,6 +87,58 @@ int create_grn_table(grn_ctx* ctx, char *_table_name, char *_flags, char *_key_t
 	return memcmp(result, "true", result_length) == 0;
 }
 
+grn_rc delete_grn_table(grn_ctx* ctx, char* name) {
+        grn_obj* obj = grn_ctx_get(ctx, name, strlen(name));
+        if (obj == NULL && ctx->rc == GRN_SUCCESS)
+        {
+                printf("[grng]%s has already been removed.\n", name);
+                return GRN_SUCCESS;
+        } else if (obj == NULL && ctx->rc != GRN_SUCCESS)
+        {
+                printf("[grng]%d:%s", ctx->rc, ctx->errbuf);
+                return ctx->rc;
+        }
+
+        grn_obj_unlink(ctx, obj);
+
+        grn_obj *table;
+        grn_obj *command;
+        grn_obj *request_timeout;
+
+        command = grn_ctx_get(ctx, "table_remove", strlen("table_remove"));
+        table = grn_expr_get_var(ctx, command, "name", strlen("name"));
+        request_timeout = grn_expr_add_var(ctx, command, "request_timeout", strlen("request_timeout"));
+
+        grn_obj_reinit(ctx, table, GRN_DB_TEXT, 0);
+        if (request_timeout != NULL) grn_obj_reinit(ctx, request_timeout, GRN_DB_TEXT, 0);
+
+        GRN_TEXT_PUTS(ctx, table, name);
+        if (request_timeout != NULL) GRN_TEXT_PUTS(ctx, request_timeout, "5");
+
+        check_memory_usage("start to remove");
+
+        grn_expr_exec(ctx, command, 0);
+        grn_rc result = ctx->rc;
+        if (ctx->rc == GRN_NO_SUCH_FILE_OR_DIRECTORY || ctx->rc == GRN_SUCCESS)
+        {
+                return GRN_SUCCESS;
+        }
+        else if (result == GRN_TOO_MANY_OPEN_FILES)
+        {
+                printf("[grng]too many files open. \n");
+                grn_obj_remove_force(ctx, name, strlen(name));
+                printf("[grng]execute delete %s.Warn memory leak\n", name);
+                check_memory_usage("end grn_obj_remove_force");
+                result = ctx->rc;
+        }
+        else if (result != GRN_SUCCESS)
+        {
+                printf("[grng]Failed to remove %s obj. : %d\n", name, result);
+        }
+        return result;
+}
+
+
 grn_rc delete_grn_object(grn_ctx* ctx, char* name) {
         grn_rc result;
         grn_obj* db = grn_ctx_db(ctx);
