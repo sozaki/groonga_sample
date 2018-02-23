@@ -141,7 +141,6 @@ grn_rc delete_grn_table(grn_ctx* ctx, char* name) {
 
 grn_rc delete_grn_object(grn_ctx* ctx, char* name) {
         grn_rc result;
-        grn_obj* db = grn_ctx_db(ctx);
         grn_obj* obj = grn_ctx_get(ctx, name, strlen(name));
         if (obj == NULL && ctx->rc == GRN_SUCCESS)
         {
@@ -151,9 +150,9 @@ grn_rc delete_grn_object(grn_ctx* ctx, char* name) {
         {
 			return ctx->rc;
         }
-		grn_obj_unlink(ctx, obj);
 
 		result = grn_obj_remove_force(ctx, name, strlen(name));
+		grn_obj_unlink(ctx, obj);
 
 		return result;
 }
@@ -208,12 +207,12 @@ int main(void)
 		files = exec_command_and_get_return(exist_files_command);
 		check_memory_usage("create table");
 		printf("%d files exists (open: %d). create %s table: %d\n", files, wc, table_name, res);
-		usleep(100);
+		usleep(500);
 		db = grn_ctx_db(&ctx);
 		grn_db_unmap(&ctx, db);
 	}
 
-	sleep(10);
+	sleep(5);
 	printf(" =============== start delete ================ \n");
 
 	for(i = 1; i < 100; i++)
@@ -221,15 +220,29 @@ int main(void)
 		memset(table_name, 0, 5);
 		sprintf(table_name, "%04d", i);
 		delete_grn_object(&ctx, table_name);
-//		groonga_close(&ctx, db);
-//		groonga_open(&ctx, db, PATH);
+		groonga_close(&ctx, db);
+		groonga_open(&ctx, db, PATH);
 //		db = grn_ctx_db(&ctx);
 //		grn_db_unmap(&ctx, db);
 		wc = exec_command_and_get_return(wc_command);
 		files = exec_command_and_get_return(exist_files_command);
 		check_memory_usage("delete table");
 		printf("%d files exists (open: %d)\n", files, wc);
-		usleep(100);
+		usleep(800);
 	}
+
+	sleep(5);
+
+	groonga_close(&ctx, db);
+	grn_obj_unlink(&ctx, db);
+	grn_ctx_fin(&ctx);
+	grn_fin();
+	wc = exec_command_and_get_return(wc_command);
+	files = exec_command_and_get_return(exist_files_command);
+	check_memory_usage("delete table");
+	printf(" =============== end ================ \n");
+	printf("%d files exists (open: %d)\n", files, wc);
+	sleep(5);
+	printf(" =============== fin ================ \n");
 
 }
