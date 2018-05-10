@@ -10,9 +10,12 @@
 #include <pthread.h>
 #include <groonga.h>
 #include <time.h>
+#include <sys/time.h>
 
 static grn_ctx insert_ctx;
 static 	grn_obj* insert_db;
+struct timeval start_time;
+struct timeval end_time;
 
 int remove_grn_table(grn_ctx* ctx, char *name, int length)
 {
@@ -69,7 +72,13 @@ int load_data(grn_ctx* ctx, grn_obj* db, char* value, char* table_name)
 	GRN_TEXT_PUTS(ctx, values, value);
 	GRN_TEXT_PUTS(ctx, type, "json");
 
+	gettimeofday(&start_time, NULL);
 	grn_expr_exec(ctx, command, 0);
+	gettimeofday(&end_time, NULL);
+
+	printf("%lf\n", end_time.tv_sec - start_time.tv_sec + (double)(end_time.tv_usec - start_time.tv_usec)/1000.0/1000.0);
+
+	if(ctx->rc == GRN_CANCEL) printf("canceled command.\n");
 	grn_ctx_recv(ctx, &result, &result_length, &recv_flags);
 	grn_expr_clear_vars(ctx, command);
 	grn_obj_unlink(ctx, command);
@@ -120,25 +129,31 @@ void create_and_remove_table()
 	char name[15];
 	int i = 0;
 	int j = 0;
-	char record[100];
+	char record[100000];
 	grn_obj* obj;
 	char table_name[30];
+	int index = 0;
 
 	while(1)
 	{
 		timer = time(NULL);
 		memset(name, 0, 15);
 		sprintf(name, "%ld", (unsigned long long)timer * 1000 + j);
-		create_grn_table(&insert_ctx, name, "TABLE_HASH_KEY", "UInt64", "", "");
-		for(i = 0; i < 1000000; i++)
+		int res = create_grn_table(&insert_ctx, name, "TABLE_HASH_KEY", "UInt64", "", "");
+		printf("create %s. result = %d\n", name, res);
+		for(i = 0; i < 10; i++)
 		{
-			memset(record, 0, 100);
-			sprintf(record, "[{\"_key\":%ld, \"value\":%s, \"num\":%ld}]", (unsigned long long)timer * 1000000000 + i, "value", (unsigned long long)timer * 1000 + 2 * i);
+			memset(record, 0, 1000);
+			sprintf(record, "[");
+			for(j = 0; j < 1000; j++){
+				sprintf(record + strlen(record), "{\"_key\":\"%ld\", \"value\":%s, \"num\":%ld},", (unsigned long long)timer * 1000000000 + i, "value", (unsigned long long)timer * 1000 + 2 * i);
+			}
+			sprintf(record + strlen(record), "]");
 			load_data(&insert_ctx, insert_db, record, name);
 		}
-		printf("create %s.\n", name);
 		grn_db_touch(&insert_ctx, insert_db);
-		usleep(1000);
+		printf("set records\n");
+		sleep(2);
 
 		grn_obj tables;
 		GRN_PTR_INIT(&tables, GRN_OBJ_VECTOR, GRN_ID_NIL);
@@ -147,45 +162,36 @@ void create_and_remove_table()
 			j = GRN_BULK_VSIZE(&tables) / sizeof(grn_obj *);
 			printf("%d tables exists\n", j);
 		}
-		for(i = 0; i < j; i++)
-		{
-			int length = grn_obj_name(&insert_ctx, GRN_PTR_VALUE_AT(&tables, i), table_name, 30);
+
+		if(j > 15){
+			int length = grn_obj_name(&insert_ctx, GRN_PTR_VALUE_AT(&tables, 0), table_name, 30);
 			obj = grn_ctx_get(&insert_ctx, table_name, length);
-			if(j > 10 && i == 0)
-			{
-				remove_grn_table(&insert_ctx, table_name, length);
-				grn_obj update_tables;
-				GRN_PTR_INIT(&update_tables, GRN_OBJ_VECTOR, GRN_ID_NIL);
-				grn_rc result = grn_ctx_get_all_tables(&insert_ctx, &update_tables);
-				if(result == GRN_SUCCESS){
-					j = GRN_BULK_VSIZE(&update_tables) / sizeof(grn_obj *);
-					printf("%d tables exists\n", j);
-				}
-
-				GRN_OBJ_FIN(&insert_ctx, &update_tables);
-
-			}
-			else{
-				grn_obj_close(&insert_ctx, obj);
-			}
+			remove_grn_table(&insert_ctx, table_name, length);
+			grn_db_unmap(&insert_ctx, insert_db);
+			if(index > 10) system("service groonga-httpd restart");
+			index++;
 		}
+		grn_obj_close(&insert_ctx, &tables);
 
-		GRN_OBJ_FIN(&insert_ctx, &tables);
-
+		sleep(1);
 	}
 
 }
 
 int main(int argc, char** argv)
 {
-	grn_thread_set_limit(2);
+
 	grn_rc result = grn_set_lock_timeout(100);
-	result = grn_set_lock_timeout(1000);
+	printf("default log_path = %s\n", grn_default_logger_get_path());
+
+	grn_set_default_request_timeout(0.001);
+	double timeout = grn_get_default_request_timeout();
 
 	grn_init();
 	grn_ctx_init(&insert_ctx, 0);
-	insert_db = grn_db_open(&insert_ctx, "/tmp/uila/db/uila.db");
 	result = grn_ctx_set_output_type(&insert_ctx, GRN_CONTENT_JSON);
+	insert_db = grn_db_open(&insert_ctx, "/tmp/uila/db/uila.db");
+
 	if(result != GRN_SUCCESS)
 	{
 		return -1;
